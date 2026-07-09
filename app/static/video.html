@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ToolBox — Tải video</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
   <style>
     .info { display:flex; gap:16px; margin-bottom:18px; }
@@ -87,7 +88,18 @@
         (data.uploader||"") + (data.duration ? "  •  "+secToTime(data.duration) : "");
       const list = document.getElementById("formats");
       list.innerHTML = "";
-      if (!data.formats.length) list.innerHTML = '<div class="fmt">Không có định dạng video, sẽ tải mặc định</div>';
+      if (!data.formats.length) {
+        const d = document.createElement("div");
+        d.className = "fmt";
+        d.onclick = () => startDownload(null, false);
+        d.innerHTML = `<div><span class="q">Thử tải chất lượng cao nhất</span>
+          <span class="badge">mặc định</span></div><div style="color:var(--muted);font-size:13px">⬇</div>`;
+        list.appendChild(d);
+        const note = document.createElement("div");
+        note.style.cssText = "color:var(--muted);font-size:12px;margin-top:8px;line-height:1.5";
+        note.textContent = "Trang này không hiện sẵn các mức chất lượng. Bấm nút trên để thử tải; nếu lỗi nghĩa là trang giấu link video (thường gặp ở web phim lậu) — không tải được.";
+        list.appendChild(note);
+      }
       data.formats.forEach(f => {
         const div = document.createElement("div");
         div.className = "fmt";
