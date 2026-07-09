@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ToolBox</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container" style="max-width:640px">
+    <a class="back" href="/">← Tất cả công cụ</a>
+    <div id="app"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const TOOL_ID = params.get("id");
+    let TOOL = null;
+    let FILES = [];
+
+    async function load() {
+      const res = await fetch("/api/tools/" + TOOL_ID);
+      if (!res.ok) { document.getElementById("app").innerHTML = "<p>Không tìm thấy công cụ.</p>"; return; }
+      TOOL = await res.json();
+      document.title = "ToolBox — " + TOOL.name;
+      render();
+    }
+
+    function render() {
+      const app = document.getElementById("app");
+      let html = `<div class="tool-head"><span class="icon">${TOOL.icon}</span><h1>${TOOL.name}</h1></div>
+        <p class="tagline">${TOOL.desc}</p>`;
+      if (TOOL.note) html += `<div class="tool-note">ℹ️ ${TOOL.note}</div>`;
+      html += `<div class="card">`;
+
+      if (TOOL.input === "files") {
+        const multi = TOOL.multiple ? "multiple" : "";
+        html += `<div class="drop" id="drop">
+            <div class="big">📁</div>
+            <div class="hint"><b>Bấm để chọn file</b> hoặc kéo thả vào đây<br>
+              <span style="font-size:12px">${TOOL.multiple ? "Có thể chọn nhiều file" : "Chọn 1 file"}</span></div>
+            <input type="file" id="fileInput" ${multi} accept="${TOOL.accept || ''}" class="hidden">
+          </div>
+          <div class="filelist" id="filelist"></div>`;
+      }
+
+      for (const o of (TOOL.options || [])) {
+        html += renderOption(o);
+      }
+
+      html += `<button class="btn" id="go">Bắt đầu ▶</button>
+        <div class="bar hidden" id="bar"><div></div></div>
+        <div class="status" id="status"></div>
+        <div class="result-box hidden" id="result"></div>
+      </div>`;
+      app.innerHTML = html;
+      wire();
+    }
+
+    function renderOption(o) {
+      if (o.type === "checkbox") {
+        return `<div class="opt check"><input type="checkbox" id="opt_${o.key}" ${o.default ? "checked" : ""}>
+          <label for="opt_${o.key}">${o.label}</label></div>`;
+      }
+      if (o.type === "select") {
+        const opts = o.choices.map(c => `<option value="${c.value}" ${c.value==o.default?"selected":""}>${c.label}</option>`).join("");
+        return `<div class="opt"><label>${o.label}</label><select id="opt_${o.key}">${opts}</select></div>`;
+      }
+      const type = o.type === "number" ? "number" : "text";
+      const extra = o.type === "number" ? `min="${o.min??''}" max="${o.max??''}"` : "";
+      return `<div class="opt"><label>${o.label}</label>
+        <input type="${type}" id="opt_${o.key}" value="${o.default ?? ''}" placeholder="${o.placeholder||''}" ${extra}></div>`;
+    }
+
+    function wire() {
+      if (TOOL.input === "files") {
+        const drop = document.getElementById("drop");
+        const input = document.getElementById("fileInput");
+        drop.onclick = () => input.click();
+        input.onchange = () => addFiles(input.files);
+        drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+        drop.ondragleave = () => drop.classList.remove("over");
+        drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); };
+      }
+      document.getElementById("go").onclick = submit;
+    }
+
+    function addFiles(fl) {
+      const arr = Array.from(fl);
+      FILES = TOOL.multiple ? FILES.concat(arr) : arr.slice(0, 1);
+      drawFiles();
+    }
+    function drawFiles() {
+      const list = document.getElementById("filelist");
+      list.innerHTML = "";
+      FILES.forEach((f, i) => {
+        const div = document.createElement("div");
+        div.className = "fileitem";
+        div.innerHTML = `<span>📄 ${f.name} <span style="color:var(--muted)">(${(f.size/1048576).toFixed(1)}MB)</span></span>
+          <span class="rm" data-i="${i}">×</span>`;
+        div.querySelector(".rm").onclick = () => { FILES.splice(i,1); drawFiles(); };
+        list.appendChild(div);
+      });
+    }
+
+    async function submit() {
+      const status = document.getElementById("status");
+      const result = document.getElementById("result");
+      const bar = document.getElementById("bar");
+      const go = document.getElementById("go");
+      result.classList.add("hidden"); result.innerHTML = "";
+      status.className = "status";
+
+      if (TOOL.input === "files") {
+        if (FILES.length < (TOOL.min_files || 1)) {
+          status.className = "status err";
+          status.textContent = `Cần chọn ít nhất ${TOOL.min_files || 1} file.`;
+          return;
+        }
+      }
+
+      const fd = new FormData();
+      if (TOOL.input === "files") for (const f of FILES) fd.append("files", f);
+      for (const o of (TOOL.options || [])) {
+        const el = document.getElementById("opt_" + o.key);
+        if (o.type === "checkbox") fd.append(o.key, el.checked);
+        else fd.append(o.key, el.value);
+      }
+
+      go.disabled = true;
+      bar.classList.remove("hidden"); bar.firstElementChild.style.width = "40%";
+      status.innerHTML = '<span class="spinner"></span> Đang xử lý...';
+
+      try {
+        const res = await fetch(TOOL.endpoint, { method: "POST", body: fd });
+        if (!res.ok) {
+          let msg = "Có lỗi xảy ra";
+          try { msg = (await res.json()).detail || msg; } catch(e){}
+          throw new Error(msg);
+        }
+        bar.firstElementChild.style.width = "100%";
+        const blob = await res.blob();
+        const ct = res.headers.get("Content-Type") || "";
+        // lấy tên file từ header
+        let fname = "ketqua";
+        const cd = res.headers.get("Content-Disposition") || "";
+        const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+        if (m) fname = decodeURIComponent(m[1].replace(/"/g,""));
+        const url = URL.createObjectURL(blob);
+
+        status.className = "status ok";
+        status.textContent = "✅ Xong! (" + (blob.size/1048576).toFixed(2) + " MB)";
+        let inner = "";
+        if (ct.startsWith("image/")) inner += `<img class="qr-preview" src="${url}">`;
+        inner += `<div><a class="dl-link" href="${url}" download="${fname}">⬇ Tải xuống: ${fname}</a></div>`;
+        result.innerHTML = inner;
+        result.classList.remove("hidden");
+      } catch (e) {
+        status.className = "status err";
+        status.textContent = "❌ " + e.message;
+        bar.classList.add("hidden");
+      } finally {
+        go.disabled = false;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

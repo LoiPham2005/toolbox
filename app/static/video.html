@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ToolBox — Tải video</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .info { display:flex; gap:16px; margin-bottom:18px; }
+    .info img { width:160px; height:90px; object-fit:cover; border-radius:10px; background:#000; }
+    .info .title { font-weight:600; font-size:16px; margin-bottom:6px;
+      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .info .up { color:var(--muted); font-size:13px; }
+    .fmt { display:flex; align-items:center; justify-content:space-between;
+      background:var(--card2); border:1px solid var(--border); border-radius:10px;
+      padding:12px 14px; cursor:pointer; margin-bottom:8px; transition:border-color .15s; }
+    .fmt:hover { border-color:var(--accent); }
+    .fmt .q { font-weight:600; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:20px; background:#23262f; color:var(--muted); margin-left:8px; }
+    .row { display:flex; gap:10px; }
+    .row input { flex:1; background:var(--card2); border:1px solid var(--border); color:var(--text);
+      padding:14px 16px; border-radius:12px; font-size:15px; outline:none; }
+    .row input:focus { border-color:var(--accent); }
+    .row button { background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#fff;
+      border:none; padding:14px 22px; border-radius:12px; font-weight:600; cursor:pointer; }
+    .toggle { display:flex; align-items:center; gap:8px; margin-top:14px; color:var(--muted); font-size:14px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="container" style="max-width:680px">
+    <a class="back" href="/">← Tất cả công cụ</a>
+    <div class="tool-head"><span class="icon">⬇️</span><h1>Tải video</h1></div>
+    <p class="tagline">Dán link (YouTube, TikTok, Facebook…) và tải về chất lượng cao</p>
+
+    <div class="card">
+      <div class="row">
+        <input type="text" id="url" placeholder="Dán link video vào đây..." autocomplete="off">
+        <button id="fetchBtn" onclick="fetchInfo()">Lấy video</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="audioOnly"> Chỉ tải nhạc (MP3)</label>
+    </div>
+
+    <div class="card hidden" id="result">
+      <div class="info">
+        <img id="thumb" src="" alt="">
+        <div><div class="title" id="vtitle"></div><div class="up" id="vuploader"></div></div>
+      </div>
+      <div id="formats"></div>
+    </div>
+
+    <div class="card hidden" id="progressCard">
+      <div class="bar"><div id="barFill"></div></div>
+      <div class="status" id="statusText"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentUrl = "";
+    function secToTime(s){ if(!s) return ""; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=Math.floor(s%60);
+      return (h?h+":":"")+String(m).padStart(h?2:1,"0")+":"+String(x).padStart(2,"0"); }
+
+    async function fetchInfo() {
+      const url = document.getElementById("url").value.trim();
+      if (!url) return;
+      currentUrl = url;
+      const btn = document.getElementById("fetchBtn");
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+      document.getElementById("result").classList.add("hidden");
+      document.getElementById("progressCard").classList.add("hidden");
+      if (document.getElementById("audioOnly").checked) {
+        btn.disabled = false; btn.textContent = "Lấy video";
+        startDownload(null, true); return;
+      }
+      try {
+        const res = await fetch("/api/video/info", { method:"POST",
+          headers:{"Content-Type":"application/json"}, body: JSON.stringify({url}) });
+        if (!res.ok) throw new Error((await res.json()).detail);
+        renderInfo(await res.json());
+      } catch(e) { alert("Lỗi: " + e.message); }
+      finally { btn.disabled = false; btn.textContent = "Lấy video"; }
+    }
+
+    function renderInfo(data) {
+      document.getElementById("thumb").src = data.thumbnail || "";
+      document.getElementById("vtitle").textContent = data.title || "";
+      document.getElementById("vuploader").textContent =
+        (data.uploader||"") + (data.duration ? "  •  "+secToTime(data.duration) : "");
+      const list = document.getElementById("formats");
+      list.innerHTML = "";
+      if (!data.formats.length) list.innerHTML = '<div class="fmt">Không có định dạng video, sẽ tải mặc định</div>';
+      data.formats.forEach(f => {
+        const div = document.createElement("div");
+        div.className = "fmt";
+        div.onclick = () => startDownload(f.format_id, false);
+        div.innerHTML = `<div><span class="q">${f.label}</span>
+          ${f.fps&&f.fps>30?`<span class="badge">${f.fps}fps</span>`:""}
+          <span class="badge">${f.ext}</span></div>
+          <div style="color:var(--muted);font-size:13px">${f.filesize||""} ⬇</div>`;
+        list.appendChild(div);
+      });
+      document.getElementById("result").classList.remove("hidden");
+    }
+
+    async function startDownload(formatId, audioOnly) {
+      const card = document.getElementById("progressCard");
+      const bar = document.getElementById("barFill");
+      const status = document.getElementById("statusText");
+      card.classList.remove("hidden");
+      bar.style.width = "0%"; status.className = "status"; status.textContent = "Đang bắt đầu...";
+      card.scrollIntoView({behavior:"smooth"});
+      let jobId;
+      try {
+        const res = await fetch("/api/video/download", { method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({url:currentUrl, format_id:formatId, audio_only:audioOnly}) });
+        jobId = (await res.json()).job_id;
+      } catch(e){ status.className="status err"; status.textContent="Lỗi: "+e.message; return; }
+
+      const poll = setInterval(async () => {
+        try {
+          const p = await (await fetch("/api/video/progress/"+jobId)).json();
+          bar.style.width = p.progress + "%";
+          if (p.status === "downloading") status.textContent = `Đang tải... ${p.progress}%  ${p.speed||""}`;
+          else if (p.status === "done") {
+            clearInterval(poll); bar.style.width="100%";
+            status.className="status ok"; status.textContent="✅ Hoàn tất! Đang lưu về máy...";
+            window.location.href = "/api/video/file/"+jobId;
+          } else if (p.status === "error") {
+            clearInterval(poll); status.className="status err"; status.textContent="❌ Lỗi: "+(p.error||"không xác định");
+          }
+        } catch(e){}
+      }, 800);
+    }
+    document.getElementById("url").addEventListener("keydown", e => { if(e.key==="Enter") fetchInfo(); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Web
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Tải video
+yt-dlp==2025.10.14
+
+# PDF / ảnh / chuyển đổi
+pypdf==6.14.2
+PyMuPDF==1.26.5
+Pillow==11.3.0
+img2pdf==0.6.1
+pdf2docx==0.5.8
+qrcode==8.0

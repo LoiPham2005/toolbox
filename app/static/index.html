@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ToolBox — Bộ công cụ online miễn phí</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <span class="brand"><span class="logo">🧰</span> ToolBox</span>
+    </div>
+    <p class="tagline">Bộ công cụ online miễn phí — tải video, xử lý PDF, ảnh, chuyển đổi tài liệu. Chạy ngay trên máy bạn.</p>
+
+    <input class="search" id="search" placeholder="🔍 Tìm công cụ... (vd: nén, gộp, word, qr)" autocomplete="off">
+
+    <div id="gallery"></div>
+
+    <p class="disclaimer">
+      Toàn bộ xử lý chạy trên máy của bạn, không gửi file lên đâu cả.<br>
+      Với công cụ tải video: chỉ tải nội dung bạn có quyền sử dụng, tôn trọng bản quyền.
+    </p>
+  </div>
+
+  <script>
+    let ALL = [];
+    async function load() {
+      const data = await (await fetch("/api/tools")).json();
+      ALL = data.tools;
+      window.CATS = data.categories;
+      render(ALL);
+    }
+    function render(tools) {
+      const g = document.getElementById("gallery");
+      g.innerHTML = "";
+      for (const cat of window.CATS) {
+        const items = tools.filter(t => t.category === cat.id);
+        if (!items.length) continue;
+        const title = document.createElement("div");
+        title.className = "cat-title";
+        title.innerHTML = `<span>${cat.icon}</span> ${cat.name}`;
+        g.appendChild(title);
+        const grid = document.createElement("div");
+        grid.className = "grid";
+        for (const t of items) {
+          const a = document.createElement("a");
+          a.className = "tool-card";
+          a.href = t.page === "video" ? "/video" : "/tool?id=" + t.id;
+          a.innerHTML = `<div class="icon">${t.icon}</div>
+            <div><div class="tname">${t.name}</div><div class="tdesc">${t.desc}</div></div>`;
+          grid.appendChild(a);
+        }
+        g.appendChild(grid);
+      }
+      if (!g.innerHTML) g.innerHTML = '<p class="tagline">Không tìm thấy công cụ nào.</p>';
+    }
+    document.getElementById("search").addEventListener("input", e => {
+      const q = e.target.value.toLowerCase().trim();
+      render(!q ? ALL : ALL.filter(t =>
+        (t.name + " " + t.desc).toLowerCase().includes(q)));
+    });
+    load();
+  </script>
+</body>
+</html>
