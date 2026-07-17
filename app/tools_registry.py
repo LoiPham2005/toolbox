@@ -202,6 +202,14 @@ TOOLS = [
         ],
     },
     {
+        "id": "image-crop",
+        "name": "Cắt ảnh",
+        "icon": "✂️",
+        "category": "image",
+        "desc": "Chọn vùng ảnh cần lấy, cắt ra giữ nguyên độ nét cao",
+        "page": "crop",
+    },
+    {
         "id": "image-resize",
         "name": "Đổi kích thước ảnh",
         "icon": "📐",

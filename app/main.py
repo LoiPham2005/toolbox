@@ -51,6 +51,11 @@ def video_page():
     return _page("video.html")
 
 
+@app.get("/crop", response_class=HTMLResponse)
+def crop_page():
+    return _page("crop.html")
+
+
 @app.get("/tool", response_class=HTMLResponse)
 def tool_page():
     return _page("tool.html")

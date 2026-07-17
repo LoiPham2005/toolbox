@@ -49,7 +49,7 @@
         for (const t of items) {
           const a = document.createElement("a");
           a.className = "tool-card";
-          a.href = t.page === "video" ? "/video" : "/tool?id=" + t.id;
+          a.href = t.page === "generic" ? "/tool?id=" + t.id : "/" + t.page;
           a.innerHTML = `<div class="icon">${t.icon}</div>
             <div><div class="tname">${t.name}</div><div class="tdesc">${t.desc}</div></div>`;
           grid.appendChild(a);

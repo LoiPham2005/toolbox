@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ToolBox — Cắt ảnh</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .stage { position: relative; display: inline-block; max-width: 100%; touch-action: none;
+      user-select: none; -webkit-user-select: none; line-height: 0; }
+    .stage img { max-width: 100%; display: block; border-radius: 8px; }
+    .sel { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.5);
+      cursor: move; box-sizing: border-box; }
+    .sel::before { content:""; position:absolute; inset:0;
+      background-image: linear-gradient(rgba(255,255,255,.35) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(255,255,255,.35) 1px, transparent 1px);
+      background-size: 33.33% 33.33%; pointer-events:none; }
+    .handle { position: absolute; width: 14px; height: 14px; background: var(--accent);
+      border: 2px solid #fff; border-radius: 50%; box-sizing: border-box; }
+    .handle.nw { left: -8px; top: -8px; cursor: nwse-resize; }
+    .handle.ne { right: -8px; top: -8px; cursor: nesw-resize; }
+    .handle.sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+    .handle.se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+    .dims { display: inline-block; background: var(--card2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 12px; font-size: 13px; color: var(--muted); margin-top: 12px; }
+    .dims b { color: var(--text); }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+    .toolbar select { background: var(--card2); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 12px; border-radius: 10px; font-size: 14px; }
+    .ghost { background: var(--card2); border: 1px solid var(--border); color: var(--text);
+      padding: 12px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+    .ghost:hover { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container" style="max-width:720px">
+    <a class="back" href="/">← Tất cả công cụ</a>
+    <div class="tool-head"><span class="icon">✂️</span><h1>Cắt ảnh</h1></div>
+    <p class="tagline">Chọn vùng cần lấy, cắt ra <b>giữ nguyên độ nét cao</b> (cắt từ ảnh gốc)</p>
+
+    <div class="card">
+      <!-- Bước 1: chọn ảnh -->
+      <div class="drop" id="drop">
+        <div class="big">🖼️</div>
+        <div class="hint"><b>Bấm để chọn ảnh</b> hoặc kéo thả vào đây</div>
+        <input type="file" id="fileInput" accept="image/*" class="hidden">
+      </div>
+
+      <!-- Bước 2: cắt -->
+      <div id="editor" class="hidden">
+        <div class="stage" id="stage">
+          <img id="img" alt="">
+          <div class="sel" id="sel">
+            <div class="handle nw" data-h="nw"></div>
+            <div class="handle ne" data-h="ne"></div>
+            <div class="handle sw" data-h="sw"></div>
+            <div class="handle se" data-h="se"></div>
+          </div>
+        </div>
+        <div><span class="dims" id="dims"></span></div>
+        <div class="toolbar">
+          <button class="ghost" id="reset">↺ Chọn lại toàn ảnh</button>
+          <select id="format">
+            <option value="keep">Giữ định dạng gốc</option>
+            <option value="png">PNG (nét nhất, không nén)</option>
+            <option value="jpg">JPG (nhẹ hơn)</option>
+          </select>
+          <button class="ghost" id="change">Đổi ảnh khác</button>
+        </div>
+        <button class="btn" id="go">✂️ Cắt & tải xuống nét cao</button>
+        <div class="status" id="status"></div>
+        <div class="result-box hidden" id="result"></div>
+      </div>
+    </div>
+
+    <p class="disclaimer">Ảnh xử lý trên máy bạn rồi tự xóa. Vùng cắt được lấy từ ảnh gốc nên không giảm độ phân giải.</p>
+  </div>
+
+  <script>
+    let FILE = null;
+    // Vùng chọn lưu dạng TỶ LỆ (0..1) so với ảnh -> không lệ thuộc kích thước hiển thị
+    let sel = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    const $ = id => document.getElementById(id);
+
+    // ---------- Chọn ảnh ----------
+    $("drop").onclick = () => $("fileInput").click();
+    $("fileInput").onchange = e => { if (e.target.files[0]) loadImage(e.target.files[0]); };
+    $("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
+    $("drop").ondragleave = () => $("drop").classList.remove("over");
+    $("drop").ondrop = e => { e.preventDefault(); $("drop").classList.remove("over");
+      if (e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]); };
+    $("change").onclick = () => $("fileInput").click();
+    $("reset").onclick = () => { sel = { x:0, y:0, w:1, h:1 }; render(); };
+
+    function loadImage(file) {
+      if (!file.type.startsWith("image/")) { alert("Vui lòng chọn file ảnh."); return; }
+      FILE = file;
+      const img = $("img");
+      img.onload = () => {
+        $("drop").classList.add("hidden");
+        $("editor").classList.remove("hidden");
+        sel = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+        render();
+      };
+      img.src = URL.createObjectURL(file);
+    }
+
+    // ---------- Vẽ vùng chọn ----------
+    function stageSize() {
+      const r = $("img").getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    }
+    function render() {
+      const s = stageSize();
+      const box = $("sel");
+      box.style.left   = (sel.x * s.w) + "px";
+      box.style.top    = (sel.y * s.h) + "px";
+      box.style.width  = (sel.w * s.w) + "px";
+      box.style.height = (sel.h * s.h) + "px";
+      const img = $("img");
+      const pw = Math.round(sel.w * img.naturalWidth);
+      const ph = Math.round(sel.h * img.naturalHeight);
+      $("dims").innerHTML = `Vùng cắt: <b>${pw} × ${ph}px</b> &nbsp;·&nbsp; Ảnh gốc: ${img.naturalWidth} × ${img.naturalHeight}px`;
+    }
+    window.addEventListener("resize", () => { if (FILE) render(); });
+
+    // ---------- Tương tác kéo/thả (chuột + cảm ứng) ----------
+    let drag = null;
+    function stageRect() { return $("stage").getBoundingClientRect(); }
+    function ptr(e) {
+      const r = stageRect();
+      return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+    }
+    const clamp = v => Math.max(0, Math.min(1, v));
+
+    $("stage").addEventListener("pointerdown", e => {
+      e.preventDefault();
+      const handle = e.target.dataset.h;
+      const p = ptr(e);
+      drag = { mode: handle || (insideSel(p) ? "move" : "draw"), start: p, orig: { ...sel } };
+      if (drag.mode === "draw") { sel = { x: clamp(p.x), y: clamp(p.y), w: 0, h: 0 }; drag.anchor = { x: clamp(p.x), y: clamp(p.y) }; }
+      $("stage").setPointerCapture(e.pointerId);
+    });
+    function insideSel(p) {
+      return p.x >= sel.x && p.x <= sel.x + sel.w && p.y >= sel.y && p.y <= sel.y + sel.h;
+    }
+    $("stage").addEventListener("pointermove", e => {
+      if (!drag) return;
+      const p = ptr(e);
+      const MIN = 0.02;
+      if (drag.mode === "move") {
+        const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+        sel.x = clamp(Math.min(drag.orig.x + dx, 1 - drag.orig.w));
+        sel.y = clamp(Math.min(drag.orig.y + dy, 1 - drag.orig.h));
+      } else if (drag.mode === "draw") {
+        const a = drag.anchor;
+        sel.x = clamp(Math.min(a.x, p.x)); sel.y = clamp(Math.min(a.y, p.y));
+        sel.w = clamp(Math.abs(p.x - a.x)); sel.h = clamp(Math.abs(p.y - a.y));
+      } else {
+        // resize theo từng góc
+        let left = sel.x, top = sel.y, right = sel.x + sel.w, bottom = sel.y + sel.h;
+        if (drag.mode.includes("w")) left = clamp(p.x);
+        if (drag.mode.includes("e")) right = clamp(p.x);
+        if (drag.mode.includes("n")) top = clamp(p.y);
+        if (drag.mode.includes("s")) bottom = clamp(p.y);
+        if (right - left < MIN) { if (drag.mode.includes("w")) left = right - MIN; else right = left + MIN; }
+        if (bottom - top < MIN) { if (drag.mode.includes("n")) top = bottom - MIN; else bottom = top + MIN; }
+        sel = { x: left, y: top, w: right - left, h: bottom - top };
+      }
+      render();
+    });
+    $("stage").addEventListener("pointerup", () => {
+      if (drag && drag.mode === "draw" && (sel.w < 0.02 || sel.h < 0.02)) sel = { x:0, y:0, w:1, h:1 };
+      drag = null; render();
+    });
+
+    // ---------- Cắt & tải ----------
+    $("go").onclick = async () => {
+      const img = $("img"), status = $("status"), result = $("result"), go = $("go");
+      result.classList.add("hidden"); result.innerHTML = "";
+      const natX = sel.x * img.naturalWidth, natY = sel.y * img.naturalHeight;
+      const natW = sel.w * img.naturalWidth, natH = sel.h * img.naturalHeight;
+      if (natW < 2 || natH < 2) { status.className = "status err"; status.textContent = "Vùng chọn quá nhỏ."; return; }
+
+      const fd = new FormData();
+      fd.append("file", FILE);
+      fd.append("x", natX); fd.append("y", natY);
+      fd.append("w", natW); fd.append("h", natH);
+      fd.append("nat_w", img.naturalWidth); fd.append("nat_h", img.naturalHeight);
+      fd.append("format", $("format").value);
+
+      go.disabled = true;
+      status.className = "status"; status.innerHTML = '<span class="spinner"></span> Đang cắt...';
+      try {
+        const res = await fetch("/api/image/crop", { method: "POST", body: fd });
+        if (!res.ok) { let m="Lỗi"; try{m=(await res.json()).detail}catch(e){} throw new Error(m); }
+        const blob = await res.blob();
+        let fname = "anh-da-cat";
+        const cd = res.headers.get("Content-Disposition") || "";
+        const mm = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+        if (mm) fname = decodeURIComponent(mm[1].replace(/"/g, ""));
+        const url = URL.createObjectURL(blob);
+        status.className = "status ok";
+        status.textContent = `✅ Đã cắt (${(blob.size/1048576).toFixed(2)} MB)`;
+        result.innerHTML = `<img class="qr-preview" style="max-width:100%" src="${url}">
+          <div><a class="dl-link" href="${url}" download="${fname}">⬇ Tải xuống: ${fname}</a></div>`;
+        result.classList.remove("hidden");
+      } catch (e) {
+        status.className = "status err"; status.textContent = "❌ " + e.message;
+      } finally { go.disabled = false; }
+    };
+  </script>
+</body>
+</html>
